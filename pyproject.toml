@@ -12,6 +12,7 @@ exclude = ["**/*.pyc", "**/*.pyi", "tests/__pycache__"]
 
 [tool.poetry.dependencies]
 python = "^3.10"
+typer = "^0.16.0"
 
 [tool.poetry.group.dev.dependencies]
 pre-commit = "^4.2.0"
@@ -19,6 +20,9 @@ pre-commit = "^4.2.0"
 [build-system]
 requires = ["poetry-core"]
 build-backend = "poetry.core.masonry.api"
+
+[tool.poetry.scripts]
+stimulator = "stimulator.cli:app"
 
 [tool.pyright]
 include = ["gator/**", "tests/**"]
