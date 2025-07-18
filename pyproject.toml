@@ -1,0 +1,38 @@
+[tool.poetry]
+name = "stimulator"
+version = "0.1.0"
+description = "Multimodal persona-aware conversational AI"
+authors = ["Shon Verch <verchshon@gmail.com>"]
+license = "MIT"
+readme = "README.md"
+
+packages = [{ include = "stimulator", from = "src" }]
+include = [{ path = "tests", format = "sdist" }]
+exclude = ["**/*.pyc", "**/*.pyi", "tests/__pycache__"]
+
+[tool.poetry.dependencies]
+python = "^3.10"
+
+[tool.poetry.group.dev.dependencies]
+pre-commit = "^4.2.0"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.pyright]
+include = ["gator/**", "tests/**"]
+exclude = ["**/__pycache__"]
+
+typeCheckingMode = "basic"
+pythonVersion = "3.9"
+pythonPlatform = "All"
+typeshedPath = "typeshed"
+enableTypeIgnoreComments = true
+
+# This is required as the CI pre-commit does not download required modules
+reportMissingImports = "none"
+
+[tool.codespell]
+quiet-level = 2
+skip = "poetry.lock,./.git/*,./tests/*"
