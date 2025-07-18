@@ -13,6 +13,10 @@ exclude = ["**/*.pyc", "**/*.pyi", "tests/__pycache__"]
 [tool.poetry.dependencies]
 python = "^3.10"
 typer = "^0.16.0"
+discord-py-self = "^2.0.1"
+rich = "^14.0.0"
+pyinquirer = "^1.0.3"
+tqdm = "^4.67.1"
 
 [tool.poetry.group.dev.dependencies]
 pre-commit = "^4.2.0"

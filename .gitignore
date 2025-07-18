@@ -209,3 +209,6 @@ __marimo__/
 # Environment variables
 .env*
 !.env.example
+
+# Data
+/data

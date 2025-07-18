@@ -1,30 +1,52 @@
 [![pre-commit.ci status](https://results.pre-commit.ci/badge/github/galacticglum/stimulator/main.svg)](https://results.pre-commit.ci/latest/github/galacticglum/stimulator/main)
 
-# stimulator
-Multimodal persona-aware conversational AI.
+# **Stimulator**
 
-## Package manager
-stimulator uses the [poetry](https://python-poetry.org/) package manager to manage its dependencies. To install the dependencies, run the following command:
-```
+Multimodal, persona-aware conversational AI
+
+## 🚀 Overview
+
+**Stimulator** is a framework for building intelligent, multimodal AI agents with personality awareness and conversation capabilities. It's designed for developers and researchers working on next-gen interactive AI systems.
+
+## 📦 Package Management
+
+This project uses [Poetry](https://python-poetry.org/) to manage dependencies.
+
+To install dependencies:
+
+```bash
 poetry install
 ```
-See the [poetry](https://python-poetry.org/) documentation for more information and
-installation instructions.
 
-#### Clone this repo and move into the directory
-```shell
+For installation instructions and more details, refer to the [Poetry documentation](https://python-poetry.org/docs/).
+
+## 🛠️ Getting Started
+
+### 1. Clone the repository
+
+```bash
 git clone https://github.com/galacticglum/stimulator.git
 cd stimulator
 ```
 
-#### Copy starter files
-```shell
+### 2. Set up environment variables
+
+Copy the example environment file and customize it:
+
+```bash
 cp .env.example .env
 ```
-The defaults are for running in *development* mode. Go through each variable in the file and make sure it is properly set. You will likely need to update the credentials. Once the file is updated, run
-```shell
+
+The default values are intended for **development** mode. You should review each variable and update it as needed, especially credentials and API keys.
+
+To load the environment variables:
+
+```bash
 source .env
 ```
-to load the environment variables into your shell.
 
-If you'll be scraping data from Discord, you will need to set the `DISCORD_API_TOKEN` variable in the `.env` file with your personal access token. To acquire a token, you can either create a bot application in the [Discord Developer Portal](https://discord.com/developers/applications) and use its token, or you can use a self-token by following the instructions [here](https://gist.github.com/MarvNC/e601f3603df22f36ebd3102c501116c6). Note that using a self-token is not recommended and may violate Discord's terms of service, so proceed with caution.
+## Discord Integration (Optional)
+
+If you're scraping data from Discord, you'll need to set the `DISCORD_USER_TOKEN` variable in your `.env` file using a **user token**. A user token is a personal access token that allows you to interact with Discord as a user, rather than as a bot. You can follow this [guide to obtain your token](https://gist.github.com/MarvNC/e601f3603df22f36ebd3102c501116c6).
+
+> ⚠️ **Warning**: Using a Discord self-token (i.e., user token) is against Discord’s [Terms of Service](https://discord.com/terms) and may result in account suspension or termination. Proceed at your own risk.
