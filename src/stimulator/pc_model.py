@@ -178,11 +178,13 @@ class PersonaChatModel(nn.Module):
         - persona_id: Tensor of shape (batch_size,) containing persona IDs.
 
     Returns:
-        A dictionary with keys:
-            - "loss": Total loss combining LLM and persona classification losses.
-            - "lm_loss": Loss from the LLM.
-            - "persona_loss": Cross-entropy loss for persona classification.
-            - "time_loss": MSE loss for time delta prediction.
+        A dictionary containing the following keys:
+            - "loss": Combined loss (only if all targets are provided).
+            - "lm_loss": Language modeling loss (0.0 if labels not provided).
+            - "persona_loss": Persona classification loss (0.0 if persona_id not provided).
+            - "time_loss": Delta time regression loss (0.0 if delta_t not provided).
+            - "persona_logits": Raw logits from persona classification head.
+            - "delta_t_pred": Predicted delta times from regression head.
 
     Instance Attributes:
         lm: The pre-trained model.
@@ -240,38 +242,61 @@ class PersonaChatModel(nn.Module):
     def forward(
         self,
         input_ids: torch.Tensor,
-        labels: torch.Tensor,
-        persona_id: torch.Tensor,
-        delta_t: torch.Tensor,
+        labels: Optional[torch.Tensor] = None,
+        persona_id: Optional[torch.Tensor] = None,
+        delta_t: Optional[torch.Tensor] = None,
         alpha: float = 0.5,
         beta: float = 0.1,
     ) -> dict[str, torch.Tensor]:
-        """Forward pass of the model."""
-        outputs = self.lm(input_ids=input_ids, labels=labels)
-        lm_loss = outputs.loss
-        # Use [B, H] from first token for classification
+        """Forward pass for training or inference."""
+        # If labels are provided, this will compute the causal LM loss
+        outputs = self.lm(
+            input_ids=input_ids, labels=labels if labels is not None else None
+        )
         hidden_state = outputs.last_hidden_state  # [B, T, H]
-        cls_hidden = hidden_state[:, 0, :]  # use first token
+        cls_hidden = hidden_state[:, 0, :]  # Use [CLS]-like first token representation
 
-        # Classification
-        persona_logits = self.persona_head(cls_hidden)
-        persona_loss = nn.CrossEntropyLoss()(persona_logits, persona_id)
+        result = {}
 
-        # Regression
-        time_pred = self.delta_time_head(cls_hidden).squeeze(1)  # [B]
-        time_loss = nn.MSELoss()(time_pred, delta_t)
+        if labels is not None:
+            lm_loss = outputs.loss
+            result["lm_loss"] = lm_loss
+        else:
+            result["lm_loss"] = torch.tensor(0.0, device=input_ids.device)
 
-        # Combine losses
-        total_loss = (
-            lm_loss + alpha * persona_loss + beta * time_loss
-        )  # weighted multi-task loss
+        # Persona classification
+        if persona_id is not None:
+            persona_logits = self.persona_head(cls_hidden)
+            persona_loss = nn.CrossEntropyLoss()(persona_logits, persona_id)
+            result["persona_logits"] = persona_logits
+            result["persona_loss"] = persona_loss
+        else:
+            result["persona_logits"] = self.persona_head(cls_hidden)
+            result["persona_loss"] = torch.tensor(0.0, device=input_ids.device)
 
-        return {
-            "loss": total_loss,
-            "lm_loss": lm_loss,
-            "persona_loss": persona_loss,
-            "time_loss": time_loss,
-        }
+        # Delta time regression
+        if delta_t is not None:
+            time_pred = self.delta_time_head(cls_hidden).squeeze(1)
+            time_loss = nn.MSELoss()(time_pred, delta_t)
+            result["delta_t_pred"] = time_pred
+            result["time_loss"] = time_loss
+        else:
+            result["delta_t_pred"] = self.delta_time_head(cls_hidden).squeeze(1)
+            result["time_loss"] = torch.tensor(0.0, device=input_ids.device)
+
+        # Combine loss if training
+        if labels is not None and persona_id is not None and delta_t is not None:
+            total_loss = (
+                result["lm_loss"]
+                + alpha * result["persona_loss"]  # noqa: W503
+                + beta * result["time_loss"]  # noqa: W503
+            )
+        else:
+            total_loss = torch.tensor(0.0, device=input_ids.device)
+
+        result["loss"] = total_loss
+
+        return result
 
 
 class PersonaChatSFTTrainer(SFTTrainer):
@@ -380,32 +405,36 @@ def train(
     trainer.train()
     trainer.save_model(model_name + "-" + dataset_path.stem + "-trained")
 
-    # ----------- Generate Examples -----------
-    def generate_response(model, prompt, persona, max_new_tokens=50):
-        model.eval()
-        input_text = f"{prompt}\n<{persona}>:"
-        input_ids = tokenizer(input_text, return_tensors="pt").input_ids.cuda()
+    # Emulate a conversation with the trained model using the first sample
+    # Load first sample from dataset
+    sample = dataset[0]
+    input_ids = sample["input_ids"].unsqueeze(0).to(model.lm.device)  # [1, seq_len]
 
-        with torch.no_grad():
-            output = model.lm.generate(
-                input_ids=input_ids,
-                max_new_tokens=max_new_tokens,
-                pad_token_id=tokenizer.pad_token_id,
-                do_sample=True,
-                temperature=0.8,
-                top_p=0.9,
-            )
-        decoded = tokenizer.decode(output[0], skip_special_tokens=True)
-        return decoded.split(f"<{persona}>:")[-1].strip()
+    # Set model to eval mode
+    model.eval()
+    with torch.no_grad():
+        # Generate next response
+        generated_ids = model.lm.generate(
+            input_ids=input_ids,
+            max_new_tokens=512,
+            pad_token_id=tokenizer.pad_token_id,
+            do_sample=True,
+        )
+        # Decode generated response
+        generated_text = tokenizer.decode(
+            generated_ids[0][input_ids.shape[1]:], skip_special_tokens=True
+        )
 
-    # ----------- Example Inference -----------
-    print("\n💬 Example Generations:")
-    example_histories = [
-        ("<PersonaA>: Hi there!\n<PersonaB>: Hey! How’s your day?", "PersonaA"),
-        ("<PersonaC>: Anyone here seen the new Marvel movie?", "PersonaB"),
-    ]
+        # Forward pass to get persona & delta_t predictions
+        outputs = model(input_ids=input_ids)
+        persona_logits = outputs["persona_logits"]
+        predicted_persona_id = torch.argmax(persona_logits, dim=1).item()
+        predicted_persona = dataset.personas[predicted_persona_id]
+        predicted_delta_t = outputs["delta_t_pred"].item()
 
-    for i, (prompt, persona) in enumerate(example_histories):
-        response = generate_response(model, prompt, persona)
-        print(f"\n[Example {i+1}] {persona} replies to:\n{prompt}")
-        print(f"👉 {response}")
+    # Print the emulated conversation
+    print("=== Conversation History ===")
+    print(tokenizer.decode(input_ids[0], skip_special_tokens=True))
+    print("\n=== Model Response ===")
+    print(f"<{predicted_persona}>: {generated_text.strip()}")
+    print(f"(Predicted response delay: {predicted_delta_t:.2f} seconds)")
