@@ -137,6 +137,9 @@ def to_pc_fmt(
     escape_markdown: bool = typer.Option(
         True, help="Whether to escape markdown characters in messages."
     ),
+    sort_by_timestamp: bool = typer.Option(
+        True, help="Whether to sort messages by timestamp before conversion."
+    ),
 ) -> None:
     """Convert scraped Discord messages to persona-chat format."""
     if output_filepath is None:
@@ -177,14 +180,25 @@ def to_pc_fmt(
         raise typer.Exit(code=1)
     typer.echo(f"Total messages to convert: {len(messages)}")
 
+    if sort_by_timestamp:
+        messages.sort(key=lambda x: x["timestamp"])
+        typer.echo("Messages sorted by timestamp.")
+
     with open(output_filepath, "w+") as fp:
         for i in tqdm.tqdm(range(window_size, len(messages))):
             history = messages[i - window_size: i]
             target = messages[i]
+            # Time delta is the difference between the target message and the last message in history
+            # This is used to simulate real-time conversation flow
+            if not history:
+                time_delta = 0  # Instant response if no history
+            else:
+                time_delta = target["timestamp"] - history[-1]["timestamp"]
             example = {
                 "history": [(msg["persona"], msg["message"]) for msg in history],
                 "next_message": target["message"],
                 "persona": target["persona"],
+                "delta_t": time_delta,
             }
             json.dump(example, fp)
             fp.write("\n")
