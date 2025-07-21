@@ -25,6 +25,7 @@ def load_pc_dataset(file_path: Path) -> tuple[HFDataset, list[str], dict[str, in
         and a dictionary mapping each persona to a unique ID.
     """
     samples = []
+    personas = set()
     with open(file_path) as fp:
         for line in fp:
             # Unpack the JSON object
@@ -48,7 +49,8 @@ def load_pc_dataset(file_path: Path) -> tuple[HFDataset, list[str], dict[str, in
                     # "delta_t": delta_t,
                 }
             )
-    personas = sorted({sample["persona"] for sample in samples})
+            personas.add(persona)
+    personas = list(sorted(personas))  # Sort personas for consistency
     persona2id = {persona: idx for idx, persona in enumerate(personas)}
 
     # Convert persona strings to IDs
