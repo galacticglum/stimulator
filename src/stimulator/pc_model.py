@@ -238,6 +238,9 @@ class PersonaChatModel(nn.Module):
 
         self.persona_head = nn.Linear(hidden_size, num_personas)
         self.delta_time_head = nn.Linear(hidden_size, 1)
+        self.config = (
+            self.lm.base_model.config
+        )  # Wrapper so that the trainer can access the config
 
     def forward(
         self,
