@@ -6,7 +6,7 @@ Multimodal, persona-aware conversational AI
 
 ## 🚀 Overview
 
-**Stimulator** is a framework for building intelligent, multimodal AI agents with personality awareness and conversation capabilities. It's designed for developers and researchers working on next-gen interactive AI systems.
+Stimulating realistic conversations with persona-aware dialogue LLMs
 
 ## 📦 Package Management
 
