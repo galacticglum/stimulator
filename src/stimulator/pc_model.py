@@ -383,7 +383,7 @@ def train(
         max_seq_length=max_length,
         # Dataset
         # packing a dataset means no padding is needed
-        packing=True,
+        packing=False,  # ← this disables padding-free mode
         # GROUP 3: These are typical training parameters
         num_train_epochs=num_train_epochs,
         learning_rate=3e-4,
