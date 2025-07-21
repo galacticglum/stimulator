@@ -215,6 +215,8 @@ class PersonaChatSFTTrainer(SFTTrainer):
         return_outputs: bool = False,
     ) -> Union[torch.Tensor, tuple[torch.Tensor, dict[str, torch.Tensor]]]:
         """Compute the loss for the model."""
+        typer.echo("Inputs: " + str(inputs.keys()))
+        typer.echo(inputs)
         # Tokenize text
         input_ids = self.tokenizer(
             inputs["text"],
@@ -340,7 +342,7 @@ def train(
         )
         # Decode generated response
         generated_text = tokenizer.decode(
-            generated_ids[0][input_ids.shape[1]:], skip_special_tokens=True
+            generated_ids[0][input_ids.shape[1] :], skip_special_tokens=True
         )
 
         # Forward pass to get persona & delta_t predictions
