@@ -11,7 +11,7 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 from transformers.utils.quantization_config import BitsAndBytesConfig
 from trl import SFTConfig, SFTTrainer
 
-from stimulator.utils import get_config_value, get_device
+from stimulator.utils import get_config_value
 
 
 def load_pc_dataset(file_path: Path) -> tuple[HFDataset, list[str], dict[str, int]]:
@@ -32,7 +32,7 @@ def load_pc_dataset(file_path: Path) -> tuple[HFDataset, list[str], dict[str, in
             history = item["history"]
             next_msg = item["next_message"]
             persona = item["persona"]
-            delta_t = item.get("delta_t", 0)
+            # delta_t = item.get("delta_t", 0)
 
             # Format the history and next message
             input_text = "\n".join(f"<{p}>: {m}" for p, m in history)
@@ -43,18 +43,18 @@ def load_pc_dataset(file_path: Path) -> tuple[HFDataset, list[str], dict[str, in
                         {"role": "user", "content": input_text},
                         {"role": "assistant", "content": target_text},
                     ],
-                    "persona": persona,
-                    "persona_id": None,  # We'll populate this in a secondary pass through the dataset
-                    "delta_t": delta_t,
+                    # "persona": persona,
+                    # "persona_id": None,  # We'll populate this in a secondary pass through the dataset
+                    # "delta_t": delta_t,
                 }
             )
     personas = sorted({sample["persona"] for sample in samples})
     persona2id = {persona: idx for idx, persona in enumerate(personas)}
 
     # Convert persona strings to IDs
-    for sample in samples:
-        sample["persona_id"] = persona2id[sample["persona"]]
-        del sample["persona"]  # Remove original persona string
+    # for sample in samples:
+    #     sample["persona_id"] = persona2id[sample["persona"]]
+    #     del sample["persona"]  # Remove original persona string
 
     return HFDataset.from_list(samples), personas, persona2id
 
@@ -90,7 +90,7 @@ def train(
         tokenizer.pad_token = tokenizer.eos_token  # Important for batching
 
     # Load the dataset
-    dataset, personas, persona2id = load_pc_dataset(dataset_path)
+    dataset, personas, _ = load_pc_dataset(dataset_path)
 
     # Load the pre-trained model
     if torch.cuda.is_available():
@@ -104,7 +104,7 @@ def train(
         bnb_config = None
     model = AutoModelForCausalLM.from_pretrained(
         model_name,
-        device_map=get_device(),
+        device_map="auto",
         quantization_config=bnb_config,
         token=hf_api_token,
     )
@@ -186,16 +186,8 @@ def train(
             generated_ids[0][input_ids.shape[1]:], skip_special_tokens=True
         )
 
-        # Forward pass to get persona & delta_t predictions
-        outputs = model(input_ids=input_ids)
-        persona_logits = outputs["persona_logits"]
-        predicted_persona_id = torch.argmax(persona_logits, dim=1).item()
-        predicted_persona = personas[predicted_persona_id]
-        predicted_delta_t = outputs["delta_t_pred"].item()
-
     # Print the emulated conversation
     print("=== Conversation History ===")
     print(tokenizer.decode(input_ids[0], skip_special_tokens=True))
     print("\n=== Model Response ===")
-    print(f"<{predicted_persona}>: {generated_text.strip()}")
-    print(f"(Predicted response delay: {predicted_delta_t:.2f} seconds)")
+    print(f"{generated_text.strip()}")
