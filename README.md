@@ -47,6 +47,6 @@ source .env
 
 ## Discord Integration
 
-If you're scraping data from Discord and/or using the simulator to interact with Discord channels, you'll need to set up a Discord user token. To do so, set the `DISCORD_USER_TOKEN` variable in your `.env` file using a **user token**. A user token is a personal access token that allows you to interact with Discord as a user, rather than as a bot. You can follow this [guide to obtain your token](https://gist.github.com/MarvNC/e601f3603df22f36ebd3102c501116c6).
+If you're scraping data from Discord and/or using the simulator to interact with Discord channels, you'll need to set up a Discord user token. To do so, set the appropriate variable in your `.env` file using a Discord **user token**, which is a personal access token that allows you to interact with Discord as a user rather than as a bot. You can follow this [guide to obtain your token](https://gist.github.com/MarvNC/e601f3603df22f36ebd3102c501116c6).
 
 > ⚠️ **Warning**: Using a Discord self-token (i.e., user token) is against Discord’s [Terms of Service](https://discord.com/terms) and may result in account suspension or termination. Proceed at your own risk.

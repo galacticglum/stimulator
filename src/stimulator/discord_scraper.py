@@ -89,16 +89,16 @@ class DiscordScraperClient(discord.Client):
 
 
 @app.command()
-def scrape() -> None:
+def run() -> None:
     """Scrape messages from a Discord channel and save them to a file."""
     # Get Discord user token
-    token = get_config_value("DISCORD_USER_TOKEN", ask_user=True, secret=True)
+    token = get_config_value("DISCORD_SCRAPER_USER_TOKEN", ask_user=True, secret=True)
     if not token:
         typer.echo("Error: Discord token is required.")
         raise typer.Exit(code=1)
 
     # Get target channel ID
-    channel_id = get_config_value("DISCORD_CHANNEL_ID", ask_user=True)
+    channel_id = get_config_value("DISCORD_SCRAPER_CHANNEL_ID", ask_user=True)
     if not channel_id:
         typer.echo("Error: Discord channel ID is required.")
         raise typer.Exit(code=1)
