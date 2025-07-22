@@ -109,6 +109,8 @@ def train(
         device_map="auto",
         quantization_config=bnb_config,
         token=hf_api_token,
+        attn_implementation="flash_attention_2",
+        torch_dtype=torch.bfloat16,  # Use bfloat16 for better performance on GPUs
     )
     # Apply 4-bit quantization and low-rank adaptation
     model = prepare_model_for_kbit_training(model)
