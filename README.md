@@ -2,11 +2,7 @@
 
 # **Stimulator**
 
-Multimodal, persona-aware conversational AI
-
-## 🚀 Overview
-
-Simulating realistic conversations with persona-aware dialogue LLMs
+Multimodal, persona-aware conversational AI for simulating Discord conversations.
 
 ## 📦 Package Management
 
@@ -47,6 +43,6 @@ source .env
 
 ## Discord Integration
 
-If you're scraping data from Discord and/or using the simulator to interact with Discord channels, you'll need to set up a Discord user token. To do so, set the appropriate variable in your `.env` file using a Discord **user token**, which is a personal access token that allows you to interact with Discord as a user rather than as a bot. You can follow this [guide to obtain your token](https://gist.github.com/MarvNC/e601f3603df22f36ebd3102c501116c6).
+You'll need to set up a Discord user token in your `.env` file (`DISCORD_USER_TOKEN`). This is a personal access token used to authenticate your requests as if you are a user client, not a bot. While this is not necessary for simulating conversations, it is required for scraping messages from Discord channels. Follow this [guide to obtain your token](https://gist.github.com/MarvNC/e601f3603df22f36ebd3102c501116c6).
 
 > ⚠️ **Warning**: Using a Discord self-token (i.e., user token) is against Discord’s [Terms of Service](https://discord.com/terms) and may result in account suspension or termination. Proceed at your own risk.

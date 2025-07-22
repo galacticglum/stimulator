@@ -80,6 +80,7 @@ def train(
         2048, help="Maximum sequence length for input text."
     ),
     num_train_epochs: int = typer.Option(10, help="Number of training epochs."),
+    wandb: bool = typer.Option(False, help="Enable Weights & Biases logging."),
 ) -> None:
     """Train the model on the Persona-Chat dataset."""
     hf_api_token = get_config_value(
@@ -88,8 +89,7 @@ def train(
     tokenizer = AutoTokenizer.from_pretrained(
         model_name, token=hf_api_token, use_fast=True
     )
-    if tokenizer.pad_token is None:
-        tokenizer.pad_token = tokenizer.eos_token  # Important for batching
+    tokenizer.pad_token = tokenizer.eos_token  # Important for batching
 
     # Load the dataset
     dataset, personas, _ = load_pc_dataset(dataset_path)
@@ -158,15 +158,16 @@ def train(
         logging_steps=10,
         logging_dir=str((output_dir / "logs").resolve()),
         output_dir=str(output_dir.resolve()),
-        report_to="none",
+        report_to="wandb" if wandb else "none",
+        run_name=f"{model_name}-{dataset_path.stem}-sft",
+        # GROUP 5: Other parameters
+        save_strategy="epoch",  # Save model at the end of each epoch
+        save_total_limit=3,  # Keep only the last 3 checkpoints
     )
-
     trainer = SFTTrainer(
         model=model, args=sft_config, train_dataset=dataset, processing_class=tokenizer
     )
-
     trainer.train()
-    trainer.save_model(model_name + "-" + dataset_path.stem + "-trained")
 
     # Emulate a conversation with the trained model using the first sample
     # Load first sample from dataset

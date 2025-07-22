@@ -92,7 +92,7 @@ class DiscordScraperClient(discord.Client):
 def run() -> None:
     """Scrape messages from a Discord channel and save them to a file."""
     # Get Discord user token
-    token = get_config_value("DISCORD_SCRAPER_USER_TOKEN", ask_user=True, secret=True)
+    token = get_config_value("DISCORD_USER_TOKEN", ask_user=True, secret=True)
     if not token:
         typer.echo("Error: Discord token is required.")
         raise typer.Exit(code=1)
