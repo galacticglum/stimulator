@@ -126,7 +126,7 @@ def load_pretrained_lm(
             task_type="CAUSAL_LM",
             # Newer models, such as Phi-3 at time of writing, may require
             # manually setting target modules
-            target_modules=["o_proj", "qkv_proj", "gate_up_proj", "down_proj"],
+            # target_modules=["o_proj", "qkv_proj", "gate_up_proj", "down_proj"],
         ),
     )
 
