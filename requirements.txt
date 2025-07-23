@@ -1,0 +1,17 @@
+# ML packages
+torch
+torchvision
+torchaudio
+transformers
+trl
+sentencepiece
+# Performance
+unsloth
+accelerate
+peft
+
+# Other dependencies
+typer
+rich
+discord-py-self
+tqdm

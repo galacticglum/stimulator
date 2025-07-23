@@ -13,8 +13,7 @@ from tqdm import tqdm
 from transformers import AutoModelForCausalLM, AutoTokenizer
 from transformers.utils.quantization_config import BitsAndBytesConfig
 from trl import SFTConfig, SFTTrainer
-from unsloth import FastLanguageModel
-from unsloth import is_bfloat16_supported
+from unsloth import FastLanguageModel, is_bfloat16_supported
 
 from stimulator.utils import get_config_value
 
