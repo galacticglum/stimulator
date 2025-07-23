@@ -40,9 +40,7 @@ def load_pc_dataset(
 
     assert samples, "Dataset is empty or not properly formatted."
 
-    samples = samples[:1000]  # Limit to first 1000 samples for testing
-
-    personas = sorted({m["persona"] for m in samples for m in m["history"]})
+    personas = sorted({s["next_message"]["persona"] for s in samples})
     persona2id = {persona: idx for idx, persona in enumerate(personas)}
     assert len(personas) > 0, "No unique personas found in the dataset."
     assert len(personas) == len(persona2id), "Persona to ID mapping is incorrect."
