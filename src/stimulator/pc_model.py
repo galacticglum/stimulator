@@ -80,11 +80,11 @@ def load_pretrained_lm(
     """Load a pre-trained language model and its tokenizer."""
     model, tokenizer = FastLanguageModel.from_pretrained(
         model_name,
-        device_map="auto",  # Automatically map model to available devices
         token=auth_token,  # Use auth token for private models
         max_seq_length=2048,  # Set max sequence length for training
         load_in_4bit=True,  # Load model in 4-bit precision
         dtype=None,  # Use default dtype (usually float16)
+        attn_implementation="flash_attention_2",  # Use Flash Attention 2 for efficiency
     )
     model = FastLanguageModel.get_peft_model(
         model,
