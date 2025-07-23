@@ -110,6 +110,7 @@ def load_pretrained_lm(
 
     num_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
     typer.echo(f"Loaded model {model_name} with {num_params} trainable parameters.")
+    typer.echo(f"Using device: {model.device}")
     return model, tokenizer
 
 
@@ -194,7 +195,6 @@ def train(
         f"Loaded dataset with {len(dataset)} samples and {len(personas)} personas."
     )
 
-    typer.echo(f"Using device: {model.device}")
     typer.echo(f"Training LLM ({model_name})...")
     trainer = UnslothTrainer(
         model=model,
