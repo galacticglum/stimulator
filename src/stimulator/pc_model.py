@@ -7,20 +7,17 @@ from typing import Optional
 import torch
 import typer
 from datasets import Dataset
-from peft import LoraConfig, get_peft_model, prepare_model_for_kbit_training
 from torch import nn
 from tqdm import tqdm
-from transformers import AutoModelForCausalLM, AutoTokenizer
-from transformers.utils.quantization_config import BitsAndBytesConfig
-from trl import SFTConfig, SFTTrainer
-from unsloth import FastLanguageModel, is_bfloat16_supported
+from unsloth import (FastLanguageModel, UnslothTrainer,
+                     UnslothTrainingArguments, is_bfloat16_supported)
 
 from stimulator.utils import get_config_value
 
 
 def load_pc_dataset(
     file_path: Path,
-    tokenizer: Optional[AutoTokenizer] = None,
+    tokenizer: Optional[nn.Module] = None,
 ) -> tuple[Dataset, dict[str, int]]:
     """Load the Persona-Chat dataset from a JSONL file.
 
@@ -79,24 +76,19 @@ def load_pc_dataset(
 
 def load_pretrained_lm(
     model_name: str, auth_token: Optional[str] = None
-) -> tuple[nn.Module, AutoTokenizer]:
+) -> tuple[nn.Module, nn.Module]:
     """Load a pre-trained language model and its tokenizer."""
-    # Load the tokenizer
-    tokenizer = AutoTokenizer.from_pretrained(
-        model_name, token=auth_token, use_fast=True
-    )
-    tokenizer.pad_token = tokenizer.eos_token  # Important for batching
-
-    model = FastLanguageModel.from_pretrained(
+    model, tokenizer = FastLanguageModel.from_pretrained(
         model_name,
-        device_map="auto",
-        token=auth_token,
-        max_seq_length=512,
-        load_in_4bit=False,
+        device_map="auto",  # Automatically map model to available devices
+        token=auth_token,  # Use auth token for private models
+        max_seq_length=2048,  # Set max sequence length for training
+        load_in_4bit=True,  # Load model in 4-bit precision
+        dtype=None,  # Use default dtype (usually float16)
     )
     model = FastLanguageModel.get_peft_model(
         model,
-        r=16,  # Choose any number > 0 ! Suggested 8, 16, 32, 64, 128
+        r=128,  # Choose any number > 0 ! Suggested 8, 16, 32, 64, 128
         target_modules=[
             "q_proj",
             "k_proj",
@@ -105,13 +97,14 @@ def load_pretrained_lm(
             "gate_proj",
             "up_proj",
             "down_proj",
+            "embed_tokens",
+            "lm_head",
         ],
-        lora_alpha=16,
+        lora_alpha=32,
         lora_dropout=0,  # Supports any, but = 0 is optimized
         bias="none",  # Supports any, but = "none" is optimized
-        # [NEW] "unsloth" uses 30% less VRAM, fits 2x larger batch sizes!
         use_gradient_checkpointing="unsloth",  # True or "unsloth" for very long context
-        use_rslora=False,  # We support rank stabilized LoRA
+        use_rslora=True,  # We support rank stabilized LoRA
         loftq_config=None,  # And LoftQ
     )
 
@@ -183,7 +176,7 @@ def train(
         help="Directory to save the trained model and tokenizer.",
     ),
     model_name: str = typer.Option(
-        "distilbert/distilgpt2",
+        "unsloth/mistral-7b-v0.3-bnb-4bit",
         help="Pre-trained model name or path.",
     ),
 ) -> None:
@@ -203,52 +196,52 @@ def train(
 
     typer.echo(f"Using device: {model.device}")
     typer.echo(f"Training LLM ({model_name})...")
-    sft_config = SFTConfig(
-        # GROUP 1: Memory usage
-        # These arguments will squeeze the most out of your GPU's RAM
-        # Checkpointing
-        gradient_checkpointing=True,  # this saves a LOT of memory
-        # Set this to avoid exceptions in newer versions of PyTorch
-        gradient_checkpointing_kwargs={"use_reentrant": False},
-        # Gradient Accumulation / Batch size
-        # Actual batch (for updating) is same (1x) as micro-batch size
-        gradient_accumulation_steps=32,
-        # The initial (micro) batch size to start off with
-        per_device_train_batch_size=32,
-        per_device_eval_batch_size=1,
-        warmup_steps=5,
-        # If batch size would cause OOM, halves its size until it works
-        auto_find_batch_size=True,
-        # GROUP 2: Dataset-related
-        # packing a dataset means no padding is needed
-        packing=True,
-        # GROUP 3: These are typical training parameters
-        num_train_epochs=1,
-        learning_rate=1e-5,
-        fp16=not is_bfloat16_supported(),
-        bf16=is_bfloat16_supported(),
-        # Optimizer
-        # 8-bit Adam optimizer - doesn't help much if you're using LoRA!
-        optim="paged_adamw_8bit",
-        # GROUP 4: Logging parameters
-        logging_steps=10,
-        logging_dir=str((output_dir / "logs").resolve()),
-        output_dir=str(output_dir.resolve()),
-        report_to="wandb",  # Use Weights & Biases for logging
-        run_name=f"{model_name}-{dataset_path.stem}-sft",
-        # GROUP 5: Other parameters
-        save_strategy="epoch",  # Save model at the end of each epoch
-        save_total_limit=3,  # Keep only the last 3 checkpoints
-        lr_scheduler_type="linear",
-        warmup_ratio=0.1,  # 10% of training steps for warmup
-    )
-    trainer = SFTTrainer(
+    trainer = UnslothTrainer(
         model=model,
-        processing_class=tokenizer,
-        args=sft_config,
+        tokenizer=tokenizer,
         train_dataset=dataset,
-        max_seq_length=512,  # Limit sequence length to 512 tokens
+        dataset_text_field="text",
+        max_seq_length=2048,
+        dataset_num_proc=8,
+        args=UnslothTrainingArguments(
+            # === BATCHING & ACCUMULATION ===
+            per_device_train_batch_size=32,  # Number of samples per device (GPU) in each forward/backward pass
+            gradient_accumulation_steps=8,  # Accumulate gradients over this many steps before optimizer update
+            auto_find_batch_size=True,  # Automatically reduce batch size on OOM error
+            # === TRAINING LENGTH ===
+            num_train_epochs=1,  # Total number of training epochs
+            max_seq_length=2048,  # Maximum sequence length for tokenized input
+            # === LEARNING RATE SCHEDULING ===
+            learning_rate=5e-5,  # Base learning rate
+            embedding_learning_rate=5e-6,  # Separate learning rate for the embedding layer
+            warmup_steps=10,  # Number of steps to linearly increase LR from 0 to set value
+            warmup_ratio=0.1,  # Alternatively, fraction of total steps used for warmup
+            lr_scheduler_type="cosine_with_restarts",  # Use cosine annealing with restarts to adjust learning rate
+            # === OPTIMIZATION ===
+            weight_decay=0.05,  # Weight decay (L2 penalty)
+            optim="paged_adamw_8bit",  # Optimizer type (paged memory-efficient 8-bit AdamW)
+            # === PRECISION SETTINGS ===
+            fp16=not is_bfloat16_supported(),  # Use 16-bit floating point (fp16) if bf16 not supported
+            bf16=is_bfloat16_supported(),  # Use bfloat16 if supported (preferred on newer hardware)
+            # === MEMORY & COMPUTATION SAVING ===
+            packing=True,  # Pack multiple short sequences into one for better efficiency
+            gradient_checkpointing=True,  # Enable gradient checkpointing to save memory
+            gradient_checkpointing_kwargs={
+                "use_reentrant": False
+            },  # Disable reentrant mode for compatibility
+            # === LOGGING ===
+            report_to="wandb",  # Use Weights & Biases for experiment tracking
+            logging_steps=1,  # Log training metrics every N steps
+            logging_dir=str((output_dir / "logs").resolve()),  # Directory to save logs
+            # === CHECKPOINTING & OUTPUT ===
+            save_strategy="epoch",  # Save model at the end of each epoch
+            save_total_limit=3,  # Keep only the last 3 saved checkpoints
+            output_dir=str(
+                output_dir.resolve()
+            ),  # Directory where model and checkpoints are saved
+        ),
     )
+
     trainer.train()
 
     # Emulate a conversation with the trained model using the first sample
