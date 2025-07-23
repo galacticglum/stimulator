@@ -13,6 +13,8 @@ from tqdm import tqdm
 from transformers import AutoModelForCausalLM, AutoTokenizer
 from transformers.utils.quantization_config import BitsAndBytesConfig
 from trl import SFTConfig, SFTTrainer
+from unsloth import FastLanguageModel
+from unsloth import is_bfloat16_supported
 
 from stimulator.utils import get_config_value
 
@@ -86,46 +88,32 @@ def load_pretrained_lm(
     )
     tokenizer.pad_token = tokenizer.eos_token  # Important for batching
 
-    # Load the pre-trained model
-    bnb_config = BitsAndBytesConfig(
-        load_in_4bit=True,
-        bnb_4bit_quant_type="nf4",
-        bnb_4bit_use_double_quant=True,
-        bnb_4bit_compute_dtype=torch.float32,
-    )
-
-    # Check if the flash-attn package is available
-    try:
-        import flash_attn  # noqa: F401
-
-        attn_implementation = "flash_attn_2"
-        typer.echo("Using flash attention for faster training.")
-    except ImportError:
-        attn_implementation = None
-        typer.echo("Flash attention not available, using default attention.")
-
-    model = AutoModelForCausalLM.from_pretrained(
+    model = FastLanguageModel.from_pretrained(
         model_name,
         device_map="auto",
         token=auth_token,
-        quantization_config=bnb_config,
-        attn_implementation=attn_implementation,
+        max_seq_length=512,
+        load_in_4bit=False,
     )
-    # Apply 4-bit quantization and low-rank adaptation
-    model = prepare_model_for_kbit_training(model)
-    model = get_peft_model(
+    model = FastLanguageModel.get_peft_model(
         model,
-        LoraConfig(
-            # the rank of the adapter, the lower the fewer parameters you'll need to train
-            r=8,
-            lora_alpha=16,  # multiplier, usually 2*r
-            bias="none",
-            lora_dropout=0.05,
-            task_type="CAUSAL_LM",
-            # Newer models, such as Phi-3 at time of writing, may require
-            # manually setting target modules
-            # target_modules=["o_proj", "qkv_proj", "gate_up_proj", "down_proj"],
-        ),
+        r=16,  # Choose any number > 0 ! Suggested 8, 16, 32, 64, 128
+        target_modules=[
+            "q_proj",
+            "k_proj",
+            "v_proj",
+            "o_proj",
+            "gate_proj",
+            "up_proj",
+            "down_proj",
+        ],
+        lora_alpha=16,
+        lora_dropout=0,  # Supports any, but = 0 is optimized
+        bias="none",  # Supports any, but = "none" is optimized
+        # [NEW] "unsloth" uses 30% less VRAM, fits 2x larger batch sizes!
+        use_gradient_checkpointing="unsloth",  # True or "unsloth" for very long context
+        use_rslora=False,  # We support rank stabilized LoRA
+        loftq_config=None,  # And LoftQ
     )
 
     num_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
@@ -199,8 +187,6 @@ def train(
         "distilbert/distilgpt2",
         help="Pre-trained model name or path.",
     ),
-    num_train_epochs: int = typer.Option(10, help="Number of training epochs."),
-    wandb: bool = typer.Option(False, help="Enable Weights & Biases logging."),
 ) -> None:
     """Train the model on the Persona-Chat dataset."""
     hf_api_token = get_config_value(
@@ -227,17 +213,21 @@ def train(
         gradient_checkpointing_kwargs={"use_reentrant": False},
         # Gradient Accumulation / Batch size
         # Actual batch (for updating) is same (1x) as micro-batch size
-        gradient_accumulation_steps=1,
+        gradient_accumulation_steps=32,
         # The initial (micro) batch size to start off with
-        per_device_train_batch_size=16,
+        per_device_train_batch_size=32,
+        per_device_eval_batch_size=1,
+        warmup_steps=5,
         # If batch size would cause OOM, halves its size until it works
         auto_find_batch_size=True,
         # GROUP 2: Dataset-related
         # packing a dataset means no padding is needed
         packing=True,
         # GROUP 3: These are typical training parameters
-        num_train_epochs=num_train_epochs,
-        learning_rate=3e-4,
+        num_train_epochs=1,
+        learning_rate=1e-5,
+        fp16=not is_bfloat16_supported(),
+        bf16=is_bfloat16_supported(),
         # Optimizer
         # 8-bit Adam optimizer - doesn't help much if you're using LoRA!
         optim="paged_adamw_8bit",
@@ -245,17 +235,20 @@ def train(
         logging_steps=10,
         logging_dir=str((output_dir / "logs").resolve()),
         output_dir=str(output_dir.resolve()),
-        report_to="wandb" if wandb else "none",
+        report_to="wandb",  # Use Weights & Biases for logging
         run_name=f"{model_name}-{dataset_path.stem}-sft",
         # GROUP 5: Other parameters
         save_strategy="epoch",  # Save model at the end of each epoch
         save_total_limit=3,  # Keep only the last 3 checkpoints
+        lr_scheduler_type="linear",
+        warmup_ratio=0.1,  # 10% of training steps for warmup
     )
     trainer = SFTTrainer(
         model=model,
         processing_class=tokenizer,
         args=sft_config,
         train_dataset=dataset,
+        max_seq_length=512,  # Limit sequence length to 512 tokens
     )
     trainer.train()
 
