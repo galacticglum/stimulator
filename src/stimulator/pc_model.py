@@ -12,7 +12,7 @@ from tqdm import tqdm
 from unsloth import (FastLanguageModel, UnslothTrainer,
                      UnslothTrainingArguments, is_bfloat16_supported)
 
-from stimulator.utils import get_config_value
+from stimulator.utils import get_config_value, get_device
 
 
 def load_pc_dataset(
@@ -80,6 +80,7 @@ def load_pretrained_lm(
     """Load a pre-trained language model and its tokenizer."""
     model, tokenizer = FastLanguageModel.from_pretrained(
         model_name,
+        device_map=get_device(),
         token=auth_token,  # Use auth token for private models
         max_seq_length=2048,  # Set max sequence length for training
         load_in_4bit=True,  # Load model in 4-bit precision
