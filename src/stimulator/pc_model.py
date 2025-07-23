@@ -198,7 +198,7 @@ def train(
         help="Directory to save the trained model and tokenizer.",
     ),
     model_name: str = typer.Option(
-        "meta-llama/Llama-3.2-1B",
+        "distilbert/distilgpt2",
         help="Pre-trained model name or path.",
     ),
     num_train_epochs: int = typer.Option(10, help="Number of training epochs."),
