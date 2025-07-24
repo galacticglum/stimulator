@@ -10,8 +10,7 @@ import unsloth  # noqa: F401  # unsloth must be imported first to apply its patc
 from datasets import Dataset
 from torch import nn
 from tqdm import tqdm
-from transformers import TrainingArguments  # noqa: F401
-from trl import SFTTrainer
+from trl import SFTConfig, SFTTrainer
 from unsloth import FastLanguageModel, is_bfloat16_supported
 
 from stimulator.utils import get_config_value
@@ -197,18 +196,18 @@ def train(
     typer.echo(
         f"Loaded dataset with {len(dataset)} samples and {len(personas)} personas."
     )
-    #
 
     typer.echo(f"Training LLM ({model_name})...")
     trainer = SFTTrainer(
         model=model,
-        tokenizer=tokenizer,
+        processing_class=tokenizer,  # type: ignore
         train_dataset=dataset,
-        dataset_text_field="text",
-        max_seq_length=max_seq_length,
-        dataset_num_proc=8,
-        packing=False,  # Can make training 5x faster for short sequences
-        args=TrainingArguments(
+        args=SFTConfig(
+            # === DATASET ===
+            dataset_text_field="text",
+            max_seq_length=max_seq_length,
+            dataset_num_proc=8,
+            packing=False,  # Can make training 5x faster for short sequences
             # === BATCHING & ACCUMULATION ===
             per_device_train_batch_size=2,  # Number of samples per device (GPU) in each forward/backward pass
             gradient_accumulation_steps=4,  # Accumulate gradients over this many steps before optimizer update
