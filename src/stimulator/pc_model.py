@@ -10,22 +10,18 @@ import unsloth  # noqa: F401  # unsloth must be imported first to apply its patc
 from datasets import Dataset
 from torch import nn
 from tqdm import tqdm
-from transformers import TrainingArguments
+from transformers import TrainingArguments  # noqa: F401
 from trl import SFTTrainer
 from unsloth import FastLanguageModel, is_bfloat16_supported
 
 from stimulator.utils import get_config_value, get_device
 
 
-def load_pc_dataset(
-    file_path: Path,
-    tokenizer: Optional[nn.Module] = None,
-) -> tuple[Dataset, dict[str, int]]:
+def load_pc_dataset(file_path: Path) -> tuple[Dataset, dict[str, int]]:
     """Load the Persona-Chat dataset from a JSONL file.
 
     Args:
         file_path: Path to the JSONL file containing the dataset.
-        tokenizer: Optional tokenizer for processing text data.
 
     Returns:
         Dataset object containing the samples and a mapping of personas to IDs.
@@ -63,16 +59,6 @@ def load_pc_dataset(
         )
 
     ds = Dataset.from_list(examples)
-    if tokenizer:
-        ds = ds.map(
-            lambda x: tokenizer(
-                text=x["text"], text_target=x["labels"], truncation=True, padding=True
-            ),  # type: ignore
-            remove_columns=["text"],
-            desc="Tokenizing dataset",
-            batched=True,
-        )
-
     return ds, persona2id
 
 
@@ -208,7 +194,7 @@ def train(
     )
 
     # Load the dataset
-    dataset, personas = load_pc_dataset(dataset_path, tokenizer=tokenizer)
+    dataset, personas = load_pc_dataset(dataset_path)
     typer.echo(
         f"Loaded dataset with {len(dataset)} samples and {len(personas)} personas."
     )
