@@ -44,7 +44,7 @@ def load_pc_dataset(file_path: Path) -> tuple[Dataset, dict[str, int]]:
     for sample in tqdm(samples, desc="Processing dataset"):
         examples.append(
             {
-                "text": "\n".join(
+                "prompt": "\n".join(
                     "<{}>: {} <|delay|> {}sec\n".format(
                         m["persona"],
                         m["message"],
@@ -52,7 +52,7 @@ def load_pc_dataset(file_path: Path) -> tuple[Dataset, dict[str, int]]:
                     )
                     for m in sample["history"]
                 ),
-                "labels": f"<{sample['next_message']['persona']}>: {sample['next_message']['message']}",
+                "completion": f"<{sample['next_message']['persona']}>: {sample['next_message']['message']}",
             }
         )
 
@@ -189,7 +189,6 @@ def train(
     model, tokenizer = load_pretrained_lm(
         model_name=model_name, auth_token=hf_api_token, seed=seed
     )
-    print(tokenizer)
 
     # Load the dataset
     dataset, personas = load_pc_dataset(dataset_path)
@@ -200,9 +199,7 @@ def train(
     typer.echo(f"Training LLM ({model_name})...")
     trainer_args = SFTConfig(
         # === DATASET ===
-        dataset_text_field="text",
         dataset_num_proc=2,
-        dataset_kwargs=None,
         max_length=max_seq_length,
         packing=False,  # Can make training 5x faster for short sequences
         # === BATCHING & ACCUMULATION ===
@@ -266,13 +263,13 @@ def train(
     FastLanguageModel.for_inference(model)  # Enable native 2x faster inference
     first_sample = dataset[0]
     input_ids = tokenizer(
-        first_sample["text"], return_tensors="pt", padding=True, truncation=True
+        first_sample["prompt"], return_tensors="pt", padding=True, truncation=True
     ).input_ids.to(model.device)
     # Generate a response
     with torch.no_grad():
         outputs = model.lm.generate(
             input_ids=input_ids,
-            max_new_tokens=50,  # Limit the response length
+            max_new_tokens=512,  # Limit response length
             do_sample=True,  # Enable sampling for more diverse responses
             temperature=0.7,  # Control randomness of the output
         )
