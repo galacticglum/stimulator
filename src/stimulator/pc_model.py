@@ -14,7 +14,7 @@ from transformers import TrainingArguments  # noqa: F401
 from trl import SFTTrainer
 from unsloth import FastLanguageModel, is_bfloat16_supported
 
-from stimulator.utils import get_config_value, get_device
+from stimulator.utils import get_config_value
 
 
 def load_pc_dataset(file_path: Path) -> tuple[Dataset, dict[str, int]]:
@@ -71,7 +71,6 @@ def load_pretrained_lm(
     """Load a pre-trained language model and its tokenizer."""
     model, tokenizer = FastLanguageModel.from_pretrained(
         model_name,
-        device_map=get_device(),
         token=auth_token,  # Use auth token for private models
         max_seq_length=max_seq_length,  # Set max sequence length for training
         load_in_4bit=True,  # Load model in 4-bit precision
