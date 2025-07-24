@@ -1,0 +1,7 @@
+include README.md
+
+# Include the tests directory in source distribution
+graft tests
+
+# Exclude bytecode and cache files
+global-exclude __pycache__ *.py[c|i]

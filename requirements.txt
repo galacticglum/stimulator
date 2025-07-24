@@ -1,17 +1,16 @@
-# ML packages
-torch
-torchvision
-torchaudio
-transformers
-trl
-sentencepiece
-# Performance
-unsloth
-accelerate
-peft
-
-# Other dependencies
-typer
-rich
-discord-py-self
-tqdm
+typer==0.16.0
+discord-py-self==2.0.1
+rich==14.0.0
+tqdm==4.67.1
+torch==2.7.1
+torchvision==0.22.1
+torchaudio==2.7.1
+transformers==4.53.2
+sentencepiece==0.2.0
+accelerate==1.9.0
+peft==0.16.0
+trl==0.19.1
+wandb==0.21.0
+flash-attn
+xformers @ git+https://github.com/facebookresearch/xformers.git@main#egg=xformers
+unsloth[colab-new] @ git+https://github.com/unslothai/unsloth.git@main#egg=unsloth[colab-new]
