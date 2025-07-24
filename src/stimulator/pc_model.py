@@ -53,7 +53,6 @@ def load_pc_dataset(file_path: Path) -> tuple[Dataset, dict[str, int]]:
                     for m in sample["history"]
                 ),
                 "labels": f"<{sample['next_message']['persona']}>: {sample['next_message']['message']}",
-                "target_delay": sample["next_message"]["delta_t"],
             }
         )
 
@@ -196,6 +195,7 @@ def train(
     typer.echo(
         f"Loaded dataset with {len(dataset)} samples and {len(personas)} personas."
     )
+    typer.echo(dataset)
 
     typer.echo(f"Training LLM ({model_name})...")
     trainer = SFTTrainer(
@@ -205,8 +205,8 @@ def train(
         args=SFTConfig(
             # === DATASET ===
             dataset_text_field="text",
-            max_seq_length=max_seq_length,
-            dataset_num_proc=8,
+            max_length=max_seq_length,
+            dataset_num_proc=2,
             packing=False,  # Can make training 5x faster for short sequences
             # === BATCHING & ACCUMULATION ===
             per_device_train_batch_size=2,  # Number of samples per device (GPU) in each forward/backward pass
@@ -246,7 +246,6 @@ def train(
             seed=seed,  # Set random seed for reproducibility
         ),
     )
-
     trainer.train()
 
     # Emulate a conversation with the trained model using the first sample
