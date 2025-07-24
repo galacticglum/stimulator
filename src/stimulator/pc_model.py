@@ -6,6 +6,7 @@ from typing import Optional
 
 import torch
 import typer
+import unsloth  # noqa: F401  # unsloth must be imported first to apply its patches
 from datasets import Dataset
 from torch import nn
 from tqdm import tqdm
