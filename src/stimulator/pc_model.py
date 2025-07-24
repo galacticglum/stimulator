@@ -244,6 +244,11 @@ def train(
     )
     trainer.train()
 
+    # Save the trained model and tokenizer
+    model.save_pretrained(output_dir)
+    tokenizer.save_pretrained(output_dir)
+    typer.echo(f"Model and tokenizer saved to {output_dir.resolve()}")
+
     # Emulate a conversation with the trained model using the first sample
     tokenizer = get_chat_template(
         tokenizer,
@@ -265,8 +270,3 @@ def train(
     typer.echo("Sample conversation with the trained model:")
     typer.echo(f"Input: {json.dumps(messages, indent=2)}")
     typer.echo(f"Response: {response[0]}")
-
-    # Save the trained model and tokenizer
-    model.save_pretrained(output_dir)
-    tokenizer.save_pretrained(output_dir)
-    typer.echo(f"Model and tokenizer saved to {output_dir.resolve()}")
