@@ -2,7 +2,7 @@
 
 import json
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 import typer
 import unsloth  # noqa: F401  # unsloth must be imported first to apply its patches
@@ -43,7 +43,7 @@ def load_pc_dataset(file_path: Path) -> tuple[Dataset, dict[str, int]]:
     for sample in tqdm(samples, desc="Processing dataset"):
         examples.append(
             {
-                "messages": [
+                "conversations": [
                     {
                         "role": "system",
                         "content": f"Your persona is: {sample['next_message']['persona']}",
@@ -126,7 +126,7 @@ def train(
         help="Directory to save the trained model and tokenizer.",
     ),
     model_name: str = typer.Option(
-        "unsloth/mistral-7b-instruct-v0.3-bnb-4bit",
+        "unsloth/Llama-3.2-3B-Instruct-bnb-4bit",
         help="Pre-trained model name or path.",
     ),
     max_seq_length: int = typer.Option(
@@ -161,9 +161,36 @@ def train(
     typer.echo(dataset)
     typer.echo(f"Personas: {', '.join(personas.keys())}")
 
+    # Dataset is in HuggingFace's generic conversational format
+    # Now we map it to the chat template expected by the model
+    def formatting_prompts_func(examples: dict[str, Any]) -> dict[str, Any]:
+        """Format the dataset examples to match the model's chat template."""
+        # Each example is a dictionary with a "conversations" key
+        # containing a list of messages in the chat format
+        assert "conversations" in examples, "Expected 'conversations' key in examples."
+        convos = examples["conversations"]
+        texts = [
+            tokenizer.apply_chat_template(
+                convo, tokenize=False, add_generation_prompt=False
+            )
+            for convo in convos
+        ]
+        return {
+            "text": texts,
+        }
+
+    dataset = dataset.map(
+        formatting_prompts_func,
+        batched=True,
+        desc="Formatting dataset for training",
+    )
+    typer.echo("Dataset has been formatted for training. Here's a sample:")
+    typer.echo(dataset[0])
+
     typer.echo(f"Training LLM ({model_name})...")
     trainer_args = SFTConfig(
         # === DATASET ===
+        dataset_text_field="text",
         dataset_num_proc=2,
         max_length=max_seq_length,
         packing=False,  # Can make training 5x faster for short sequences
