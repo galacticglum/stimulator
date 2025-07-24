@@ -126,7 +126,7 @@ def train(
         help="Directory to save the trained model and tokenizer.",
     ),
     model_name: str = typer.Option(
-        "unsloth/mistral-7b-v0.3-bnb-4bit",
+        "unsloth/mistral-7b-instruct-v0.3-bnb-4bit",
         help="Pre-trained model name or path.",
     ),
     max_seq_length: int = typer.Option(
@@ -150,6 +150,8 @@ def train(
     model, tokenizer = load_pretrained_lm(
         model_name=model_name, auth_token=hf_api_token, seed=seed
     )
+    tokenizer.pad_token = tokenizer.unk_token
+    tokenizer.pad_token_id = tokenizer.unk_token_id
 
     # Load the dataset
     dataset, personas = load_pc_dataset(dataset_path)
