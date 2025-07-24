@@ -200,21 +200,10 @@ def train(
         # === MISC ===
         seed=seed,  # Set random seed for reproducibility
     )
-    processed_dataset = SFTTrainer._prepare_dataset(
-        SFTTrainer,
-        dataset,
-        tokenizer,
-        trainer_args,
-        trainer_args.packing,
-        None,
-        "train",
-    )
-    typer.echo(processed_dataset)
-
     trainer = SFTTrainer(
         model=model,
         processing_class=tokenizer,  # type: ignore
-        train_dataset=processed_dataset,
+        train_dataset=dataset,
         args=trainer_args,
     )
     trainer.train()
