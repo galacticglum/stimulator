@@ -4,7 +4,6 @@ import json
 from pathlib import Path
 from typing import Optional
 
-import torch
 import typer
 import unsloth  # noqa: F401  # unsloth must be imported first to apply its patches
 from datasets import Dataset
@@ -44,15 +43,27 @@ def load_pc_dataset(file_path: Path) -> tuple[Dataset, dict[str, int]]:
     for sample in tqdm(samples, desc="Processing dataset"):
         examples.append(
             {
-                "prompt": "\n".join(
-                    "<{}>: {} <|delay|> {}sec\n".format(
-                        m["persona"],
-                        m["message"],
-                        round(float(m["delta_t"]), 2),
-                    )
-                    for m in sample["history"]
-                ),
-                "completion": f"<{sample['next_message']['persona']}>: {sample['next_message']['message']}",
+                "messages": [
+                    {
+                        "role": "system",
+                        "content": f"Your persona is: {sample['persona']}",
+                    },
+                    {
+                        "role": "user",
+                        "content": "\n".join(
+                            "<{}>: {} <|delay|> {}sec\n".format(
+                                m["persona"],
+                                m["message"],
+                                round(float(m["delta_t"]), 2),
+                            )
+                            for m in sample["history"]
+                        ),
+                    },
+                    {
+                        "role": "assistant",
+                        "content": f"<{sample['next_message']['persona']}>: {sample['next_message']['message']}",
+                    },
+                ]
             }
         )
 
@@ -100,56 +111,6 @@ def load_pretrained_lm(
     typer.echo(f"Loaded model {model_name} with {num_params} trainable parameters.")
     typer.echo(f"Using device: {model.device}")
     return model, tokenizer
-
-
-class PCDownstreamModel(nn.Module):
-    """Downstream model for predicting metadata based on conversation history.
-
-    Args:
-        lm: Pre-trained language model to use as a base.
-        input_dim: Dimension of the input features (e.g., token embeddings).
-        hidden_dim: Dimension of the hidden layer in the delay predictor.
-    """
-
-    lm: nn.Module
-    delay_predictor: nn.Module
-
-    def __init__(self, lm: nn.Module, hidden_dim: int = 128) -> None:
-        """Initialize the PCDownstreamModel."""
-        super().__init__()
-        self.lm = lm
-        input_dim = getattr(
-            self.lm, "lm_head"
-        ).in_features  # Get hidden size from the language model
-        self.delay_predictor = nn.Sequential(
-            nn.Linear(input_dim, hidden_dim),
-            nn.ReLU(),
-            nn.Linear(hidden_dim, 1),  # Output a single value for delay prediction
-            nn.Softplus(
-                dim=-1
-            ),  # Ensure output is non-negative (since delay is a time value)
-        )
-
-    def forward(self, input_ids: torch.Tensor) -> torch.Tensor:
-        """Forward pass through the model.
-
-        Args:
-            input_ids: Tokenized input IDs for the conversation history.
-
-        Returns:
-            Predicted delay values for the conversation history.
-        """
-        with torch.no_grad():
-            # Get the output from the pre-trained language model
-            outputs = self.lm(input_ids=input_ids)
-            # Use the last hidden state for delay prediction
-            last_hidden_state = outputs.last_hidden_state
-
-        # Extract the last token's hidden state
-        h = last_hidden_state[:, -1, :]  # Shape: (batch_size, input_dim)
-        # Apply the delay predictor to the last hidden state
-        delay_predictions = self.delay_predictor(h).squeeze(-1)  # Shape: (batch_size,)
-        return delay_predictions
 
 
 app = typer.Typer(help="PC Model CLI")
@@ -261,20 +222,26 @@ def train(
     # Emulate a conversation with the trained model using the first sample
     # Load first sample from dataset
     FastLanguageModel.for_inference(model)  # Enable native 2x faster inference
-    first_sample = dataset[0]
-    input_ids = tokenizer(
-        first_sample["prompt"], return_tensors="pt", padding=True, truncation=True
-    ).input_ids.to(model.device)
-    # Generate a response
-    with torch.no_grad():
-        outputs = model.lm.generate(
-            input_ids=input_ids,
-            max_new_tokens=512,  # Limit response length
-            do_sample=True,  # Enable sampling for more diverse responses
-            temperature=0.7,  # Control randomness of the output
-        )
-    response = tokenizer.decode(outputs[0], skip_special_tokens=True)
-    typer.echo(f"Generated response: {response}")
+    sample = dataset[0]
+    prompt = tokenizer.apply_chat_template(
+        sample["messages"],
+        tokenize=False,  # Don't tokenize yet, we will do it in the model
+        add_generation_prompt=True,  # Add generation prompt for the model
+    )
+    typer.echo(f"Prompt: {prompt}")
+
+    tokenized_prompt = tokenizer(
+        prompt, add_special_tokens=False, return_tensors="pt", padding="max_length"
+    ).to(model.device)
+    model.eval()
+    gen_output = model.generate(
+        **tokenized_prompt,
+        eos_token_id=tokenizer.eos_token_id,
+        max_new_tokens=512,  # Limit the number of tokens generated
+        do_sample=True,  # Enable sampling for more diverse responses
+    )
+    output = tokenizer.batch_decode(gen_output, skip_special_tokens=False)
+    typer.echo(f"Generated response: {output[0]}")
 
     # Save the trained model and tokenizer
     model.save_pretrained(output_dir)
