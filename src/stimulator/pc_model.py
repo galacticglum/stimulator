@@ -145,6 +145,14 @@ def train(
         8,
         help="Number of processes to use for dataset processing.",
     ),
+    batch_size: int = typer.Option(
+        2,
+        help="Batch size per device (GPU) for training.",
+    ),
+    gradient_accumulation_steps: int = typer.Option(
+        8,
+        help="Number of steps to accumulate gradients before performing an optimizer update.",
+    ),
     seed: int = typer.Option(42, help="Random seed for reproducibility."),
 ) -> None:
     """Train the model on the Persona-Chat dataset."""
@@ -200,8 +208,8 @@ def train(
         max_length=max_seq_length,
         packing=False,  # Can make training 5x faster for short sequences
         # === BATCHING & ACCUMULATION ===
-        per_device_train_batch_size=2,  # Number of samples per device (GPU) in each forward/backward pass
-        gradient_accumulation_steps=4,  # Accumulate gradients over this many steps before optimizer update
+        per_device_train_batch_size=batch_size,  # Number of samples per device (GPU) in each forward/backward pass
+        gradient_accumulation_steps=gradient_accumulation_steps,  # Accumulate gradients over this many steps before optimizer update
         # Effective batch size = per_device_train_batch_size * gradient_accumulation_steps
         auto_find_batch_size=True,  # Automatically reduce batch size on OOM error
         # === TRAINING LENGTH ===
@@ -264,7 +272,7 @@ def train(
     ).to(model.device)
 
     outputs = model.generate(
-        input_ids=inputs, max_new_tokens=64, use_cache=True, temperature=1.5, min_p=0.1
+        input_ids=inputs, max_new_tokens=512, use_cache=True, temperature=1.5, min_p=0.1
     )
     response = tokenizer.batch_decode(outputs)
     typer.echo("Sample conversation with the trained model:")
