@@ -9,8 +9,9 @@ import typer
 from datasets import Dataset
 from torch import nn
 from tqdm import tqdm
-from unsloth import (FastLanguageModel, UnslothTrainer,
-                     UnslothTrainingArguments, is_bfloat16_supported)
+from transformers import TrainingArguments
+from trl import SFTTrainer
+from unsloth import FastLanguageModel, is_bfloat16_supported
 
 from stimulator.utils import get_config_value, get_device
 
@@ -75,21 +76,24 @@ def load_pc_dataset(
 
 
 def load_pretrained_lm(
-    model_name: str, auth_token: Optional[str] = None
+    model_name: str,
+    auth_token: Optional[str] = None,
+    max_seq_length: Optional[int] = None,
+    seed: Optional[int] = None,
 ) -> tuple[nn.Module, nn.Module]:
     """Load a pre-trained language model and its tokenizer."""
     model, tokenizer = FastLanguageModel.from_pretrained(
         model_name,
         device_map=get_device(),
         token=auth_token,  # Use auth token for private models
-        max_seq_length=2048,  # Set max sequence length for training
+        max_seq_length=max_seq_length,  # Set max sequence length for training
         load_in_4bit=True,  # Load model in 4-bit precision
         dtype=None,  # Use default dtype (usually float16)
         attn_implementation="flash_attention_2",  # Use Flash Attention 2 for efficiency
     )
     model = FastLanguageModel.get_peft_model(
         model,
-        r=128,  # Choose any number > 0 ! Suggested 8, 16, 32, 64, 128
+        r=16,  # Choose any number > 0 ! Suggested 8, 16, 32, 64, 128
         target_modules=[
             "q_proj",
             "k_proj",
@@ -98,14 +102,13 @@ def load_pretrained_lm(
             "gate_proj",
             "up_proj",
             "down_proj",
-            "embed_tokens",
-            "lm_head",
         ],
-        lora_alpha=32,
+        lora_alpha=16,
         lora_dropout=0,  # Supports any, but = 0 is optimized
         bias="none",  # Supports any, but = "none" is optimized
         use_gradient_checkpointing="unsloth",  # True or "unsloth" for very long context
-        use_rslora=True,  # We support rank stabilized LoRA
+        random_state=seed,  # Set random seed for reproducibility
+        use_rslora=False,  # We support rank stabilized LoRA
         loftq_config=None,  # And LoftQ
     )
 
@@ -181,13 +184,26 @@ def train(
         "unsloth/mistral-7b-v0.3-bnb-4bit",
         help="Pre-trained model name or path.",
     ),
+    max_seq_length: int = typer.Option(
+        2048,
+        help="Maximum sequence length for training.",
+    ),
+    num_train_epochs: int = typer.Option(
+        1,
+        help="Number of training epochs. If `num_steps` is set, this will be ignored.",
+    ),
+    num_steps: Optional[int] = typer.Option(
+        None,
+        help="Total number of training steps. If set, `num_train_epochs` will be ignored.",
+    ),
+    seed: int = typer.Option(42, help="Random seed for reproducibility."),
 ) -> None:
     """Train the model on the Persona-Chat dataset."""
     hf_api_token = get_config_value(
         "HF_API_TOKEN", ask_user=True, secret=True, allow_empty=True
     )
     model, tokenizer = load_pretrained_lm(
-        model_name=model_name, auth_token=hf_api_token
+        model_name=model_name, auth_token=hf_api_token, seed=seed
     )
 
     # Load the dataset
@@ -195,37 +211,38 @@ def train(
     typer.echo(
         f"Loaded dataset with {len(dataset)} samples and {len(personas)} personas."
     )
+    #
 
     typer.echo(f"Training LLM ({model_name})...")
-    trainer = UnslothTrainer(
+    trainer = SFTTrainer(
         model=model,
         tokenizer=tokenizer,
         train_dataset=dataset,
         dataset_text_field="text",
-        max_seq_length=2048,
+        max_seq_length=max_seq_length,
         dataset_num_proc=8,
-        args=UnslothTrainingArguments(
+        packing=False,  # Can make training 5x faster for short sequences
+        args=TrainingArguments(
             # === BATCHING & ACCUMULATION ===
-            per_device_train_batch_size=32,  # Number of samples per device (GPU) in each forward/backward pass
-            gradient_accumulation_steps=8,  # Accumulate gradients over this many steps before optimizer update
+            per_device_train_batch_size=2,  # Number of samples per device (GPU) in each forward/backward pass
+            gradient_accumulation_steps=4,  # Accumulate gradients over this many steps before optimizer update
+            # Effective batch size = per_device_train_batch_size * gradient_accumulation_steps
             auto_find_batch_size=True,  # Automatically reduce batch size on OOM error
             # === TRAINING LENGTH ===
-            num_train_epochs=1,  # Total number of training epochs
-            max_seq_length=2048,  # Maximum sequence length for tokenized input
+            num_train_epochs=num_train_epochs,  # Total number of training epochs
+            max_steps=num_steps if num_steps else -1,  # Total number of training steps
             # === LEARNING RATE SCHEDULING ===
-            learning_rate=5e-5,  # Base learning rate
-            embedding_learning_rate=5e-6,  # Separate learning rate for the embedding layer
+            learning_rate=2e-4,  # Base learning rate
             warmup_steps=10,  # Number of steps to linearly increase LR from 0 to set value
             warmup_ratio=0.1,  # Alternatively, fraction of total steps used for warmup
-            lr_scheduler_type="cosine_with_restarts",  # Use cosine annealing with restarts to adjust learning rate
+            lr_scheduler_type="linear",
             # === OPTIMIZATION ===
-            weight_decay=0.05,  # Weight decay (L2 penalty)
-            optim="paged_adamw_8bit",  # Optimizer type (paged memory-efficient 8-bit AdamW)
+            weight_decay=0.01,  # Weight decay (L2 penalty)
+            optim="adamw_8bit",  # Use 8-bit AdamW optimizer for memory efficiency
             # === PRECISION SETTINGS ===
             fp16=not is_bfloat16_supported(),  # Use 16-bit floating point (fp16) if bf16 not supported
             bf16=is_bfloat16_supported(),  # Use bfloat16 if supported (preferred on newer hardware)
             # === MEMORY & COMPUTATION SAVING ===
-            packing=True,  # Pack multiple short sequences into one for better efficiency
             gradient_checkpointing=True,  # Enable gradient checkpointing to save memory
             gradient_checkpointing_kwargs={
                 "use_reentrant": False
@@ -240,6 +257,8 @@ def train(
             output_dir=str(
                 output_dir.resolve()
             ),  # Directory where model and checkpoints are saved
+            # === MISC ===
+            seed=seed,  # Set random seed for reproducibility
         ),
     )
 
@@ -247,16 +266,22 @@ def train(
 
     # Emulate a conversation with the trained model using the first sample
     # Load first sample from dataset
-    first_sample = dataset[0]["messages"]
-    input_text = first_sample[0]["content"]
-    input_ids = tokenizer.encode(input_text, return_tensors="pt").to(model.device)
+    first_sample = dataset[0]
+    input_ids = tokenizer(
+        first_sample["text"], return_tensors="pt", padding=True, truncation=True
+    ).input_ids.to(model.device)
     # Generate a response
     with torch.no_grad():
-        outputs = model.generate(
+        outputs = model.lm.generate(
             input_ids=input_ids,
-            max_length=512,  # Limit response length
-            num_return_sequences=1,
+            max_new_tokens=50,  # Limit the response length
             do_sample=True,  # Enable sampling for more diverse responses
+            temperature=0.7,  # Control randomness of the output
         )
     response = tokenizer.decode(outputs[0], skip_special_tokens=True)
     typer.echo(f"Generated response: {response}")
+
+    # Save the trained model and tokenizer
+    model.save_pretrained(output_dir)
+    tokenizer.save_pretrained(output_dir)
+    typer.echo(f"Model and tokenizer saved to {output_dir.resolve()}")
