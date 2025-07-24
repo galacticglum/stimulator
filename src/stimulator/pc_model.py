@@ -236,7 +236,8 @@ def train(
         logging_steps=1,  # Log training metrics every N steps
         logging_dir=str((output_dir / "logs").resolve()),  # Directory to save logs
         # === CHECKPOINTING & OUTPUT ===
-        save_strategy="epoch",  # Save model at the end of each epoch
+        save_strategy="steps",  # Save model every N steps
+        save_steps=100,  # Save every 100 steps
         save_total_limit=3,  # Keep only the last 3 saved checkpoints
         output_dir=str(
             output_dir.resolve()
