@@ -13,4 +13,4 @@ trl==0.19.1
 wandb==0.21.0
 flash-attn
 xformers @ git+https://github.com/facebookresearch/xformers.git@main#egg=xformers
-unsloth[colab-new] @ git+https://github.com/unslothai/unsloth.git@main#egg=unsloth[colab-new]
+unsloth
