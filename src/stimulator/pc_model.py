@@ -10,7 +10,7 @@ from datasets import Dataset
 from torch import nn
 from tqdm import tqdm
 from trl import SFTConfig, SFTTrainer
-from unsloth import FastLanguageModel, is_bfloat16_supported
+from unsloth import FastLanguageModel, get_chat_template, is_bfloat16_supported
 
 from stimulator.utils import get_config_value
 
@@ -141,6 +141,10 @@ def train(
         None,
         help="Total number of training steps. If set, `num_train_epochs` will be ignored.",
     ),
+    num_proc: int = typer.Option(
+        8,
+        help="Number of processes to use for dataset processing.",
+    ),
     seed: int = typer.Option(42, help="Random seed for reproducibility."),
 ) -> None:
     """Train the model on the Persona-Chat dataset."""
@@ -183,6 +187,7 @@ def train(
         formatting_prompts_func,
         batched=True,
         desc="Formatting dataset for training",
+        num_proc=num_proc,
     )
     typer.echo("Dataset has been formatted for training. Here's a sample:")
     typer.echo(dataset[0])
@@ -191,7 +196,7 @@ def train(
     trainer_args = SFTConfig(
         # === DATASET ===
         dataset_text_field="text",
-        dataset_num_proc=2,
+        dataset_num_proc=num_proc,
         max_length=max_seq_length,
         packing=False,  # Can make training 5x faster for short sequences
         # === BATCHING & ACCUMULATION ===
@@ -240,28 +245,26 @@ def train(
     trainer.train()
 
     # Emulate a conversation with the trained model using the first sample
-    # Load first sample from dataset
+    tokenizer = get_chat_template(
+        tokenizer,
+        chat_template="llama-3.1",
+    )
     FastLanguageModel.for_inference(model)  # Enable native 2x faster inference
-    sample = dataset[0]
-    prompt = tokenizer.apply_chat_template(
-        sample["messages"],
-        tokenize=False,  # Don't tokenize yet, we will do it in the model
-        add_generation_prompt=True,  # Add generation prompt for the model
-    )
-    typer.echo(f"Prompt: {prompt}")
-
-    tokenized_prompt = tokenizer(
-        prompt, add_special_tokens=False, return_tensors="pt", padding="max_length"
+    messages = dataset[0]["conversations"]
+    inputs = tokenizer.apply_chat_template(
+        messages,
+        tokenize=True,
+        add_generation_prompt=True,  # Must add for generation
+        return_tensors="pt",
     ).to(model.device)
-    model.eval()
-    gen_output = model.generate(
-        **tokenized_prompt,
-        eos_token_id=tokenizer.eos_token_id,
-        max_new_tokens=512,  # Limit the number of tokens generated
-        do_sample=True,  # Enable sampling for more diverse responses
+
+    outputs = model.generate(
+        input_ids=inputs, max_new_tokens=64, use_cache=True, temperature=1.5, min_p=0.1
     )
-    output = tokenizer.batch_decode(gen_output, skip_special_tokens=False)
-    typer.echo(f"Generated response: {output[0]}")
+    response = tokenizer.batch_decode(outputs)
+    typer.echo("Sample conversation with the trained model:")
+    typer.echo(f"Input: {json.dumps(messages, indent=2)}")
+    typer.echo(f"Response: {response[0]}")
 
     # Save the trained model and tokenizer
     model.save_pretrained(output_dir)
