@@ -197,6 +197,7 @@ def train(
         f"Loaded dataset with {len(dataset)} samples and {len(personas)} personas."
     )
     typer.echo(dataset)
+    typer.echo(list(next(iter(dataset)).keys()))
 
     typer.echo(f"Training LLM ({model_name})...")
     trainer = SFTTrainer(
@@ -252,6 +253,7 @@ def train(
 
     # Emulate a conversation with the trained model using the first sample
     # Load first sample from dataset
+    FastLanguageModel.for_inference(model)  # Enable native 2x faster inference
     first_sample = dataset[0]
     input_ids = tokenizer(
         first_sample["text"], return_tensors="pt", padding=True, truncation=True
