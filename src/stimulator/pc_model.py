@@ -189,6 +189,7 @@ def train(
     model, tokenizer = load_pretrained_lm(
         model_name=model_name, auth_token=hf_api_token, seed=seed
     )
+    print(tokenizer)
 
     # Load the dataset
     dataset, personas = load_pc_dataset(dataset_path)
@@ -205,8 +206,9 @@ def train(
         args=SFTConfig(
             # === DATASET ===
             dataset_text_field="text",
-            max_length=max_seq_length,
             dataset_num_proc=2,
+            dataset_kwargs=None,
+            max_length=max_seq_length,
             packing=False,  # Can make training 5x faster for short sequences
             # === BATCHING & ACCUMULATION ===
             per_device_train_batch_size=2,  # Number of samples per device (GPU) in each forward/backward pass
