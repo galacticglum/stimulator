@@ -46,7 +46,7 @@ def load_pc_dataset(file_path: Path) -> tuple[Dataset, dict[str, int]]:
                 "messages": [
                     {
                         "role": "system",
-                        "content": f"Your persona is: {sample['persona']}",
+                        "content": f"Your persona is: {sample['next_message']['persona']}",
                     },
                     {
                         "role": "user",
@@ -156,6 +156,8 @@ def train(
     typer.echo(
         f"Loaded dataset with {len(dataset)} samples and {len(personas)} personas."
     )
+    typer.echo(dataset)
+    typer.echo(f"Personas: {', '.join(personas.keys())}")
 
     typer.echo(f"Training LLM ({model_name})...")
     trainer_args = SFTConfig(
