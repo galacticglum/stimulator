@@ -196,58 +196,68 @@ def train(
     typer.echo(
         f"Loaded dataset with {len(dataset)} samples and {len(personas)} personas."
     )
-    typer.echo(dataset)
-    typer.echo(list(next(iter(dataset)).keys()))
 
     typer.echo(f"Training LLM ({model_name})...")
+    trainer_args = SFTConfig(
+        # === DATASET ===
+        dataset_text_field="text",
+        dataset_num_proc=2,
+        dataset_kwargs=None,
+        max_length=max_seq_length,
+        packing=False,  # Can make training 5x faster for short sequences
+        # === BATCHING & ACCUMULATION ===
+        per_device_train_batch_size=2,  # Number of samples per device (GPU) in each forward/backward pass
+        gradient_accumulation_steps=4,  # Accumulate gradients over this many steps before optimizer update
+        # Effective batch size = per_device_train_batch_size * gradient_accumulation_steps
+        auto_find_batch_size=True,  # Automatically reduce batch size on OOM error
+        # === TRAINING LENGTH ===
+        num_train_epochs=num_train_epochs,  # Total number of training epochs
+        max_steps=num_steps if num_steps else -1,  # Total number of training steps
+        # === LEARNING RATE SCHEDULING ===
+        learning_rate=2e-4,  # Base learning rate
+        warmup_steps=10,  # Number of steps to linearly increase LR from 0 to set value
+        warmup_ratio=0.1,  # Alternatively, fraction of total steps used for warmup
+        lr_scheduler_type="linear",
+        # === OPTIMIZATION ===
+        weight_decay=0.01,  # Weight decay (L2 penalty)
+        optim="adamw_8bit",  # Use 8-bit AdamW optimizer for memory efficiency
+        # === PRECISION SETTINGS ===
+        fp16=not is_bfloat16_supported(),  # Use 16-bit floating point (fp16) if bf16 not supported
+        bf16=is_bfloat16_supported(),  # Use bfloat16 if supported (preferred on newer hardware)
+        # === MEMORY & COMPUTATION SAVING ===
+        gradient_checkpointing=True,  # Enable gradient checkpointing to save memory
+        gradient_checkpointing_kwargs={
+            "use_reentrant": False
+        },  # Disable reentrant mode for compatibility
+        # === LOGGING ===
+        report_to="wandb",  # Use Weights & Biases for experiment tracking
+        logging_steps=1,  # Log training metrics every N steps
+        logging_dir=str((output_dir / "logs").resolve()),  # Directory to save logs
+        # === CHECKPOINTING & OUTPUT ===
+        save_strategy="epoch",  # Save model at the end of each epoch
+        save_total_limit=3,  # Keep only the last 3 saved checkpoints
+        output_dir=str(
+            output_dir.resolve()
+        ),  # Directory where model and checkpoints are saved
+        # === MISC ===
+        seed=seed,  # Set random seed for reproducibility
+    )
+    processed_dataset = SFTTrainer._prepare_dataset(
+        SFTTrainer,
+        dataset,
+        tokenizer,
+        trainer_args,
+        trainer_args.packing,
+        None,
+        "train",
+    )
+    typer.echo(processed_dataset)
+
     trainer = SFTTrainer(
         model=model,
         processing_class=tokenizer,  # type: ignore
-        train_dataset=dataset,
-        args=SFTConfig(
-            # === DATASET ===
-            dataset_text_field="text",
-            dataset_num_proc=2,
-            dataset_kwargs=None,
-            max_length=max_seq_length,
-            packing=False,  # Can make training 5x faster for short sequences
-            # === BATCHING & ACCUMULATION ===
-            per_device_train_batch_size=2,  # Number of samples per device (GPU) in each forward/backward pass
-            gradient_accumulation_steps=4,  # Accumulate gradients over this many steps before optimizer update
-            # Effective batch size = per_device_train_batch_size * gradient_accumulation_steps
-            auto_find_batch_size=True,  # Automatically reduce batch size on OOM error
-            # === TRAINING LENGTH ===
-            num_train_epochs=num_train_epochs,  # Total number of training epochs
-            max_steps=num_steps if num_steps else -1,  # Total number of training steps
-            # === LEARNING RATE SCHEDULING ===
-            learning_rate=2e-4,  # Base learning rate
-            warmup_steps=10,  # Number of steps to linearly increase LR from 0 to set value
-            warmup_ratio=0.1,  # Alternatively, fraction of total steps used for warmup
-            lr_scheduler_type="linear",
-            # === OPTIMIZATION ===
-            weight_decay=0.01,  # Weight decay (L2 penalty)
-            optim="adamw_8bit",  # Use 8-bit AdamW optimizer for memory efficiency
-            # === PRECISION SETTINGS ===
-            fp16=not is_bfloat16_supported(),  # Use 16-bit floating point (fp16) if bf16 not supported
-            bf16=is_bfloat16_supported(),  # Use bfloat16 if supported (preferred on newer hardware)
-            # === MEMORY & COMPUTATION SAVING ===
-            gradient_checkpointing=True,  # Enable gradient checkpointing to save memory
-            gradient_checkpointing_kwargs={
-                "use_reentrant": False
-            },  # Disable reentrant mode for compatibility
-            # === LOGGING ===
-            report_to="wandb",  # Use Weights & Biases for experiment tracking
-            logging_steps=1,  # Log training metrics every N steps
-            logging_dir=str((output_dir / "logs").resolve()),  # Directory to save logs
-            # === CHECKPOINTING & OUTPUT ===
-            save_strategy="epoch",  # Save model at the end of each epoch
-            save_total_limit=3,  # Keep only the last 3 saved checkpoints
-            output_dir=str(
-                output_dir.resolve()
-            ),  # Directory where model and checkpoints are saved
-            # === MISC ===
-            seed=seed,  # Set random seed for reproducibility
-        ),
+        train_dataset=processed_dataset,
+        args=trainer_args,
     )
     trainer.train()
 
