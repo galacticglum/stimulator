@@ -113,6 +113,47 @@ def load_pretrained_lm(
     return model, tokenizer
 
 
+def load_train_dataset(
+    dataset_path: Path,
+    num_proc: int = 8,
+) -> Dataset:
+    """Load the Persona-Chat dataset for training."""
+    dataset, personas = load_pc_dataset(dataset_path)
+    typer.echo(
+        f"Loaded dataset with {len(dataset)} samples and {len(personas)} personas."
+    )
+    typer.echo(dataset)
+    typer.echo(f"Personas: {', '.join(personas.keys())}")
+
+    # Dataset is in HuggingFace's generic conversational format
+    # Now we map it to the chat template expected by the model
+    def formatting_prompts_func(examples: dict[str, Any]) -> dict[str, Any]:
+        """Format the dataset examples to match the model's chat template."""
+        # Each example is a dictionary with a "conversations" key
+        # containing a list of messages in the chat format
+        assert "conversations" in examples, "Expected 'conversations' key in examples."
+        convos = examples["conversations"]
+        texts = [
+            tokenizer.apply_chat_template(
+                convo, tokenize=False, add_generation_prompt=False
+            )
+            for convo in convos
+        ]
+        return {
+            "text": texts,
+        }
+
+    dataset = dataset.map(
+        formatting_prompts_func,
+        batched=True,
+        desc="Formatting dataset for training",
+        num_proc=num_proc,
+    )
+    typer.echo("Dataset has been formatted for training. Here's a sample:")
+    typer.echo(dataset[0])
+    return dataset
+
+
 app = typer.Typer(help="PC Model CLI")
 
 
@@ -166,39 +207,7 @@ def train(
     tokenizer.pad_token_id = tokenizer.unk_token_id
 
     # Load the dataset
-    dataset, personas = load_pc_dataset(dataset_path)
-    typer.echo(
-        f"Loaded dataset with {len(dataset)} samples and {len(personas)} personas."
-    )
-    typer.echo(dataset)
-    typer.echo(f"Personas: {', '.join(personas.keys())}")
-
-    # Dataset is in HuggingFace's generic conversational format
-    # Now we map it to the chat template expected by the model
-    def formatting_prompts_func(examples: dict[str, Any]) -> dict[str, Any]:
-        """Format the dataset examples to match the model's chat template."""
-        # Each example is a dictionary with a "conversations" key
-        # containing a list of messages in the chat format
-        assert "conversations" in examples, "Expected 'conversations' key in examples."
-        convos = examples["conversations"]
-        texts = [
-            tokenizer.apply_chat_template(
-                convo, tokenize=False, add_generation_prompt=False
-            )
-            for convo in convos
-        ]
-        return {
-            "text": texts,
-        }
-
-    dataset = dataset.map(
-        formatting_prompts_func,
-        batched=True,
-        desc="Formatting dataset for training",
-        num_proc=num_proc,
-    )
-    typer.echo("Dataset has been formatted for training. Here's a sample:")
-    typer.echo(dataset[0])
+    dataset = load_train_dataset(dataset_path, num_proc=num_proc)
 
     typer.echo(f"Training LLM ({model_name})...")
     trainer_args = SFTConfig(
@@ -279,3 +288,42 @@ def train(
     typer.echo("Sample conversation with the trained model:")
     typer.echo(f"Input: {json.dumps(messages, indent=2)}")
     typer.echo(f"Response: {response[0]}")
+
+
+# Write an emulate command that takes in a checkpoint path and tests the model with a sample conversation.
+@app.command()
+def emulate(
+    dataset_path: Path = typer.Argument(
+        help="Path to the Persona-Chat dataset JSONL file."
+    ),
+    checkpoint_path: Path = typer.Argument(
+        help="Path to the trained model checkpoint directory."
+    ),
+    sample_conversation: str = typer.Option(
+        "Hello! How are you?",
+        help="Sample conversation to test the model with.",
+    ),
+) -> None:
+    """Emulate a conversation with the trained model."""
+    typer.echo(f"Loading model from {checkpoint_path}...")
+    model, tokenizer = FastLanguageModel.from_pretrained(checkpoint_path)
+    tokenizer = get_chat_template(tokenizer, chat_template="llama-3.1")
+
+    FastLanguageModel.for_inference(model)
+    dataset = load_train_dataset(dataset_path, num_proc=1)
+    messages = dataset[0]["conversations"]
+    inputs = tokenizer.apply_chat_template(
+        sample_conversation,
+        tokenize=True,
+        add_generation_prompt=True,  # Must add for generation
+        return_tensors="pt",
+    ).to(model.device)
+
+    outputs = model.generate(
+        input_ids=inputs, max_new_tokens=512, use_cache=True, temperature=1.5, min_p=0.1
+    )
+    response = tokenizer.batch_decode(outputs)
+    typer.echo("Sample conversation with the trained model:")
+    typer.echo(f"Input: {json.dumps(messages, indent=2)}")
+    typer.echo(f"Response: {response[0]}")
+    typer.echo("Emulation complete.")
